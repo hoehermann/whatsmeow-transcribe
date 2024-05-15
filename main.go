@@ -20,9 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
@@ -45,10 +43,9 @@ var logLevel = "INFO"
 var debugLogs = flag.Bool("debug", false, "Enable debug logs?")
 var dbDialect = flag.String("db-dialect", "sqlite3", "Database dialect (sqlite3 or postgres)")
 var dbAddress = flag.String("db-address", "file:whatsmeow.db?_foreign_keys=on", "Database address")
-var requestFullSync = flag.Bool("request-full-sync", false, "Request full (1 year) history sync when logging in?")
 var apiUrl = flag.String("api-url", "https://api.openai.com/v1/audio/transcriptions", "Transcription API URL")
 var apiKey = flag.String("api-key", "", "Transcription API Key")
-var pairRejectChan = make(chan bool, 1)
+var messageHead = flag.String("message-head", "Transcript:\n> ", "Text to start message with")
 
 func main() {
 	waBinary.IndentXML = true
@@ -57,13 +54,11 @@ func main() {
 	if *debugLogs {
 		logLevel = "DEBUG"
 	}
-	if *requestFullSync {
-		store.DeviceProps.RequireFullSync = proto.Bool(true)
-		store.DeviceProps.HistorySyncConfig = &waProto.DeviceProps_HistorySyncConfig{
-			FullSyncDaysLimit:   proto.Uint32(3650),
-			FullSyncSizeMbLimit: proto.Uint32(102400),
-			StorageQuotaMb:      proto.Uint32(102400),
-		}
+	store.DeviceProps.RequireFullSync = proto.Bool(false)
+	store.DeviceProps.HistorySyncConfig = &waProto.DeviceProps_HistorySyncConfig{
+		FullSyncDaysLimit:   proto.Uint32(0),
+		FullSyncSizeMbLimit: proto.Uint32(0),
+		StorageQuotaMb:      proto.Uint32(0),
 	}
 	log = waLog.Stdout("Main", logLevel, true)
 
@@ -82,20 +77,8 @@ func main() {
 	}
 
 	cli = whatsmeow.NewClient(device, waLog.Stdout("Client", logLevel, true))
-	var isWaitingForPair atomic.Bool
 	cli.PrePairCallback = func(jid types.JID, platform, businessName string) bool {
-		isWaitingForPair.Store(true)
-		defer isWaitingForPair.Store(false)
-		log.Infof("Pairing %s (platform: %q, business name: %q). Type r within 3 seconds to reject pair", jid, platform, businessName)
-		select {
-		case reject := <-pairRejectChan:
-			if reject {
-				log.Infof("Rejecting pair")
-				return false
-			}
-		case <-time.After(3 * time.Second):
-		}
-		log.Infof("Accepting pair")
+		log.Infof("Pairing %s (platform: %q, business name: %q).", jid, platform, businessName)
 		return true
 	}
 
@@ -149,87 +132,9 @@ func main() {
 				cli.Disconnect()
 				return
 			}
-			if isWaitingForPair.Load() {
-				if cmd == "r" {
-					pairRejectChan <- true
-				} else if cmd == "a" {
-					pairRejectChan <- false
-				}
-				continue
-			}
-			args := strings.Fields(cmd)
-			cmd = args[0]
-			args = args[1:]
-			go handleCmd(strings.ToLower(cmd), args)
 		}
 	}
 }
-
-func parseJID(arg string) (types.JID, bool) {
-	if arg[0] == '+' {
-		arg = arg[1:]
-	}
-	if !strings.ContainsRune(arg, '@') {
-		return types.NewJID(arg, types.DefaultUserServer), true
-	} else {
-		recipient, err := types.ParseJID(arg)
-		if err != nil {
-			log.Errorf("Invalid JID %s: %v", arg, err)
-			return recipient, false
-		} else if recipient.User == "" {
-			log.Errorf("Invalid JID %s: no server specified", arg)
-			return recipient, false
-		}
-		return recipient, true
-	}
-}
-
-func handleCmd(cmd string, args []string) {
-	switch cmd {
-	case "pair-phone":
-		if len(args) < 1 {
-			log.Errorf("Usage: pair-phone <number>")
-			return
-		}
-		linkingCode, err := cli.PairPhone(args[0], true)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Println("Linking code:", linkingCode)
-	case "reconnect":
-		cli.Disconnect()
-		err := cli.Connect()
-		if err != nil {
-			log.Errorf("Failed to connect: %v", err)
-		}
-	case "logout":
-		err := cli.Logout()
-		if err != nil {
-			log.Errorf("Error logging out: %v", err)
-		} else {
-			log.Infof("Successfully logged out")
-		}
-	case "send":
-		if len(args) < 2 {
-			log.Errorf("Usage: send <jid> <text>")
-			return
-		}
-		recipient, ok := parseJID(args[0])
-		if !ok {
-			return
-		}
-		msg := &waProto.Message{Conversation: proto.String(strings.Join(args[1:], " "))}
-		resp, err := cli.SendMessage(context.Background(), recipient, msg)
-		if err != nil {
-			log.Errorf("Error sending message: %v", err)
-		} else {
-			log.Infof("Message sent (server timestamp: %s)", resp.Timestamp)
-		}
-	}
-}
-
-var historySyncID int32
-var startupTime = time.Now().Unix()
 
 func handler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
@@ -272,7 +177,16 @@ func handler(rawEvt interface{}) {
 				maybeText := getTranscription(audio_data)
 				if maybeText != nil {
 					text := *maybeText
-					msg := &waProto.Message{Conversation: proto.String(text)}
+					msg := &waProto.Message{
+						ExtendedTextMessage: &waProto.ExtendedTextMessage{
+							Text: proto.String(*messageHead + text),
+							ContextInfo: &waProto.ContextInfo{
+								StanzaId:      proto.String(evt.Info.ID),
+								Participant:   proto.String(evt.Info.Sender.ToNonAD().String()),
+								QuotedMessage: evt.Message,
+							},
+						},
+					}
 					_, _ = cli.SendMessage(context.Background(), evt.Info.MessageSource.Chat, msg)
 				}
 			}
@@ -280,6 +194,7 @@ func handler(rawEvt interface{}) {
 	}
 }
 
+// TODO: return error, log in caller
 func getTranscription(audio_data []byte) *string {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -327,7 +242,7 @@ func getTranscription(audio_data []byte) *string {
 	}
 	responseText := string(resposeBody)
 	if resp.StatusCode != http.StatusOK {
-		log.Warnf("Transcription: Response: „%s“", responseText)
+		log.Warnf("Transcription: Got negative response: „%s“", responseText)
 	}
 	return &responseText
 }
