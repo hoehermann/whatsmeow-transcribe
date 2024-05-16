@@ -8,7 +8,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -38,6 +37,8 @@ import (
 
 var cli *whatsmeow.Client
 var log waLog.Logger
+
+var quitter = make(chan struct{})
 
 var logLevel = "INFO"
 var debugLogs = flag.Bool("debug", false, "Enable debug logs?")
@@ -111,30 +112,16 @@ func main() {
 	}
 
 	c := make(chan os.Signal, 1)
-	input := make(chan string)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		defer close(input)
-		scan := bufio.NewScanner(os.Stdin)
-		for scan.Scan() {
-			line := strings.TrimSpace(scan.Text())
-			if len(line) > 0 {
-				input <- line
-			}
-		}
-	}()
 	for {
 		select {
 		case <-c:
 			log.Infof("Interrupt received, exiting")
 			cli.Disconnect()
 			return
-		case cmd := <-input:
-			if len(cmd) == 0 {
-				log.Infof("Stdin closed, exiting")
-				cli.Disconnect()
-				return
-			}
+		case <-quitter:
+			log.Infof("Shutdown requested, exiting")
+			return
 		}
 	}
 }
@@ -142,7 +129,8 @@ func main() {
 func handler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.StreamReplaced, *events.Disconnected:
-		os.Exit(0)
+		log.Infof("Got %+v. Terminating.", evt)
+		close(quitter)
 	case *events.Message:
 		metaParts := []string{fmt.Sprintf("pushname: %s", evt.Info.PushName), fmt.Sprintf("timestamp: %s", evt.Info.Timestamp)}
 		if evt.Info.Type != "" {
