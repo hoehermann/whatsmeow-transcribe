@@ -9,4 +9,9 @@ This is a small service app for transcribing (speech-to-text) WhatsApp voice mes
 
 Any voice message sent to your account will be transcribed. The speech-to-text result is automatically posted to the conversation *for everyone to see*.
 
-In case you are running a local text-to-speech instance, you can have `--api-url` point to your server. This is a proof of concept. No support is provided.
+![Screenshot](/screenshot.png?raw=true "Screenshot")
+
+You can also use the `API_KEY` environment variable to supply the API key.  
+In case you are running a local text-to-speech instance, you can have `--api-url` point to your server. 
+
+This is a proof of concept. No support is provided.
