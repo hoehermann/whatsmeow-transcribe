@@ -54,6 +54,9 @@ func main() {
 	if *debugLogs {
 		logLevel = "DEBUG"
 	}
+	if *apiKey == "" {
+		*apiKey = os.Getenv("API_KEY")
+	}
 	store.DeviceProps.RequireFullSync = proto.Bool(false)
 	store.DeviceProps.HistorySyncConfig = &waProto.DeviceProps_HistorySyncConfig{
 		FullSyncDaysLimit:   proto.Uint32(0),
