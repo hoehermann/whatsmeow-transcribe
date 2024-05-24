@@ -164,7 +164,7 @@ func handler(rawEvt interface{}) {
 				log.Errorf("Failed to download audio: %v", err)
 				return
 			}
-			if am.GetPtt() {
+			if am.GetPTT() {
 				maybeText := getTranscription(audio_data)
 				if maybeText != nil {
 					text := *maybeText
@@ -172,7 +172,7 @@ func handler(rawEvt interface{}) {
 						ExtendedTextMessage: &waProto.ExtendedTextMessage{
 							Text: proto.String(*messageHead + text),
 							ContextInfo: &waProto.ContextInfo{
-								StanzaId:      proto.String(evt.Info.ID),
+								StanzaID:      proto.String(evt.Info.ID),
 								Participant:   proto.String(evt.Info.Sender.ToNonAD().String()),
 								QuotedMessage: evt.Message,
 							},
