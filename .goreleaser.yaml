@@ -22,6 +22,12 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm64
+
+kos:
+  - repository: ghcr.io/caarlos0/test-ko
 
 archives:
   - format: tar.gz
