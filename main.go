@@ -21,7 +21,7 @@ import (
 	"strings"
 	"syscall"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"github.com/mdp/qrterminal/v3"
 	"google.golang.org/protobuf/proto"
 
@@ -42,8 +42,8 @@ var quitter = make(chan struct{})
 
 var logLevel = "INFO"
 var debugLogs = flag.Bool("debug", false, "Enable debug logs?")
-var dbDialect = flag.String("db-dialect", "sqlite3", "Database dialect (sqlite3 or postgres)")
-var dbAddress = flag.String("db-address", "file:whatsmeow.db?_foreign_keys=on", "Database address")
+var dbDialect = flag.String("db-dialect", "sqlite", "Database dialect (sqlite or postgres)")
+var dbAddress = flag.String("db-address", "file:whatsmeow.db?_pragma=foreign_keys(1)", "Database address")
 var apiUrl = flag.String("api-url", "https://api.openai.com/v1/audio/transcriptions", "Transcription API URL")
 var apiKey = flag.String("api-key", "", "Transcription API Key")
 var messageHead = flag.String("message-head", "Transcript:\n> ", "Text to start message with")
