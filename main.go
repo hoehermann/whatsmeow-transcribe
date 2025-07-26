@@ -21,9 +21,9 @@ import (
 	"strings"
 	"syscall"
 
-	_ "modernc.org/sqlite"
 	"github.com/mdp/qrterminal/v3"
 	"google.golang.org/protobuf/proto"
+	_ "modernc.org/sqlite"
 
 	"go.mau.fi/whatsmeow"
 	waBinary "go.mau.fi/whatsmeow/binary"
@@ -69,12 +69,12 @@ func main() {
 	store.DeviceProps.Os = proto.String("whatsmeow-transcribe")
 
 	dbLog := waLog.Stdout("Database", logLevel, true)
-	storeContainer, err := sqlstore.New(*dbDialect, *dbAddress, dbLog)
+	storeContainer, err := sqlstore.New(context.Background(), *dbDialect, *dbAddress, dbLog)
 	if err != nil {
 		log.Errorf("Failed to connect to database: %v", err)
 		return
 	}
-	device, err := storeContainer.GetFirstDevice()
+	device, err := storeContainer.GetFirstDevice(context.Background())
 	if err != nil {
 		log.Errorf("Failed to get device: %v", err)
 		return
@@ -160,7 +160,7 @@ func handler(rawEvt interface{}) {
 
 		am := evt.Message.GetAudioMessage()
 		if am != nil {
-			audio_data, err := cli.Download(am)
+			audio_data, err := cli.Download(context.Background(), am)
 			if err != nil {
 				log.Errorf("Failed to download audio: %v", err)
 				return
