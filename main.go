@@ -132,6 +132,7 @@ func handler(rawEvt interface{}) {
 		log.Infof("Got %+v. Terminating.", evt)
 		close(quitter)
 	case *events.Message:
+		// TODO: remove most of these logging functions – they are not needed for the core feature
 		metaParts := []string{fmt.Sprintf("pushname: %s", evt.Info.PushName), fmt.Sprintf("timestamp: %s", evt.Info.Timestamp)}
 		if evt.Info.Type != "" {
 			metaParts = append(metaParts, fmt.Sprintf("type: %s", evt.Info.Type))
@@ -164,21 +165,24 @@ func handler(rawEvt interface{}) {
 				log.Errorf("Failed to download audio: %v", err)
 				return
 			}
-			if am.GetPTT() {
+			if am.GetPTT() { // TODO: analyze imported (non-PTT) audio-messages, too?
 				maybeText := getTranscription(audio_data)
 				if maybeText != nil {
 					text := *maybeText
-					msg := &waProto.Message{
-						ExtendedTextMessage: &waProto.ExtendedTextMessage{
-							Text: proto.String(*messageHead + text),
-							ContextInfo: &waProto.ContextInfo{
-								StanzaID:      proto.String(evt.Info.ID),
-								Participant:   proto.String(evt.Info.Sender.ToNonAD().String()),
-								QuotedMessage: evt.Message,
+					if text != "" {
+						msg := &waProto.Message{
+							ExtendedTextMessage: &waProto.ExtendedTextMessage{
+								Text: proto.String(*messageHead + text),
+								ContextInfo: &waProto.ContextInfo{
+									StanzaID:      proto.String(evt.Info.ID),
+									Participant:   proto.String(evt.Info.Sender.ToNonAD().String()),
+									QuotedMessage: evt.Message,
+								},
 							},
-						},
+						}
+						// TODO: detect if someone else transcribed the message before analyzing/posting
+						_, _ = cli.SendMessage(context.Background(), evt.Info.MessageSource.Chat, msg)
 					}
-					_, _ = cli.SendMessage(context.Background(), evt.Info.MessageSource.Chat, msg)
 				}
 			}
 		}
